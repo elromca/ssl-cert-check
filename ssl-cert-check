@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-PROGRAMVERSION=4.14
+PROGRAMVERSION=4.14-connect
 #
 # Program: SSL Certificate Check <ssl-cert-check>
 #
@@ -12,6 +12,9 @@ PROGRAMVERSION=4.14
 # Last Updated: 11-12-2020
 #
 # Revision History:
+#
+# Version 4.14-connect
+#  - Added "Connect" option -- elromca
 #
 # Version 4.14
 #  - Fixed HOST / PORT discovery @mhow2
@@ -621,6 +624,7 @@ usage()
     echo "  -a                : Send a warning message through E-mail"
     echo "  -b                : Will not print header"
     echo "  -c cert file      : Print the expiration date for the PEM or PKCS12 formatted certificate in cert file"
+    echo "  -C connect        : Host (IP address is supported as well) to connect to (-s would be used as a -servername)"
     echo "  -d cert directory : Print the expiration date for the PEM or PKCS12 formatted certificates in cert directory"
     echo "  -e E-mail address : E-mail address to send expiration notices"
     echo "  -E E-mail sender  : E-mail address of the sender"
@@ -650,7 +654,8 @@ usage()
 ##########################################################################
 check_server_status() {
 
-    PORT="$2"
+    CONNECT="$2"
+    PORT="${CONNECT##*:}"
     case "$PORT" in
         smtp|25|submission|587) TLSFLAG="-starttls smtp";;
         pop3|110)               TLSFLAG="-starttls pop3";;
@@ -669,36 +674,36 @@ check_server_status() {
     esac
 
     if [ "${TLSSERVERNAME}" = "FALSE" ]; then
-        OPTIONS="-connect ${1}:${2} $TLSFLAG"
+        OPTIONS="-connect ${CONNECT} $TLSFLAG"
     else
-        OPTIONS="-connect ${1}:${2} -servername ${1} $TLSFLAG"
+        OPTIONS="-connect ${CONNECT} -servername ${1} $TLSFLAG"
     fi
 
     echo "" | "${OPENSSL}" s_client $OPTIONS 2> "${ERROR_TMP}" 1> "${CERT_TMP}"
 
     if "${GREP}" -i "Connection refused" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "Connection refused" "Unknown"
+        prints "${1}" "${PORT}" "Connection refused" "Unknown"
         set_returncode 3
     elif "${GREP}" -i "No route to host" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "No route to host" "Unknown"
+        prints "${1}" "${PORT}" "No route to host" "Unknown"
         set_returncode 3
     elif "${GREP}" -i "gethostbyname failure" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "Cannot resolve domain" "Unknown"
+        prints "${1}" "${PORT}" "Cannot resolve domain" "Unknown"
         set_returncode 3
     elif "${GREP}" -i "Operation timed out" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "Operation timed out" "Unknown"
+        prints "${1}" "${PORT}" "Operation timed out" "Unknown"
         set_returncode 3
     elif "${GREP}" -i "ssl handshake failure" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "SSL handshake failed" "Unknown"
+        prints "${1}" "${PORT}" "SSL handshake failed" "Unknown"
         set_returncode 3
     elif "${GREP}" -i "connect: Connection timed out" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "Connection timed out" "Unknown"
+        prints "${1}" "${PORT}" "Connection timed out" "Unknown"
         set_returncode 3
     elif "${GREP}" -i "Name or service not known" "${ERROR_TMP}" > /dev/null; then
-        prints "${1}" "${2}" "Unable to resolve the DNS name ${1}" "Unknown"
+        prints "${1}" "${PORT}" "Unable to resolve the DNS name ${1}" "Unknown"
         set_returncode 3
     else
-        check_file_status "${CERT_TMP}" "${1}" "${2}"
+        check_file_status "${CERT_TMP}" "${1}" "${PORT}"
     fi
 }
 
@@ -804,12 +809,13 @@ check_file_status() {
 #################################
 ### Start of main program
 #################################
-while getopts abc:d:e:E:f:hik:nNp:qs:St:Vx: option
+while getopts abc:C:d:e:E:f:hik:nNp:qs:St:Vx: option
 do
     case "${option}" in
         a) ALARM="TRUE";;
         b) NOHEADER="TRUE";;
         c) CERTFILE=${OPTARG};;
+        C) CONNECT=${OPTARG};;
         d) CERTDIRECTORY=${OPTARG};;
         e) ADMIN=${OPTARG};;
         E) SENDER=${OPTARG};;
@@ -906,7 +912,7 @@ fi
 ### If a HOST was passed on the cmdline, use that value
 if [ "${HOST}" != "" ]; then
     print_heading
-    check_server_status "${HOST}" "${PORT:=443}"
+    check_server_status "${HOST}" "${CONNECT:=$HOST}:${PORT:=443}"
     print_summary
 ### If a file is passed to the "-f" option on the command line, check
 ### each certificate or server / port combination in the file to see if
@@ -918,12 +924,14 @@ elif [ -f "${SERVERFILE}" ]; then
     for LINE in $(grep -E -v '(^#|^$)' "${SERVERFILE}")
     do
         HOST=${LINE%% *}
-        PORT=${LINE##* }
+        CONNECT=${LINE##* }
         IFS=" "
-        if [ "$PORT" = "FILE" ]; then
+        if [ "$CONNECT" = "FILE" ]; then
             check_file_status "${HOST}" "FILE" "${HOST}"
+        elif [[ "$CONNECT" =~ ':' ]]; then
+            check_server_status "${HOST}" "${CONNECT}"
         else
-            check_server_status "${HOST}" "${PORT}"
+            check_server_status "${HOST}" "${HOST}:${CONNECT}"
         fi
     done
     IFS="${OLDIFS}"

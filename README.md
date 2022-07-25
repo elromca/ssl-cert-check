@@ -11,6 +11,7 @@ Usage: ./ssl-cert-check [ -e email address ] [ -E sender email address ] [ -x da
   -a                : Send a warning message through E-mail
   -b                : Will not print header
   -c cert file      : Print the expiration date for the PEM or PKCS12 formatted certificate in cert file
+  -C connect        : Host (IP address is supported as well) to connect to (-s would be used as a -servername)
   -d cert directory : Print the expiration date for the PEM or PKCS12 formatted certificates in cert directory
   -e E-mail address : E-mail address to send expiration notices
   -E E-mail address : Sender E-mail address
@@ -64,3 +65,7 @@ $ ssl-cert-check -a -f ssldomains -q -x 60 -e admin@prefetch.net
 # Additional Documentation
 
 Documentation And Examples: http://prefetch.net/articles/checkcertificate.html
+
+# Connect option
+
+Use -C (connect) option to override the server FQDN/IP address. The -s (common name) would still be used in the request header. When reading FQDNs from a file with -f (cert file) option, the connect string can be set in a port field in FQDN:PORT format.
